@@ -36,7 +36,8 @@ LLAMA_CPP_SRCS = $(LLAMA_CPP_SRCS_C) $(LLAMA_CPP_SRCS_CPP)
 # Object files
 LLAMA_CPP_SRCS_OBJS = \
 	$(LLAMA_CPP_SRCS_C:%.c=o/$(MODE)/%.o) \
-	$(LLAMA_CPP_SRCS_CPP:%.cpp=o/$(MODE)/%.o)
+	$(LLAMA_CPP_SRCS_CPP:%.cpp=o/$(MODE)/%.o) \
+	o/$(MODE)/llama.cpp/ggml/src/ggml-cpu/ggml-cpu-impl.o
 
 LLAMA_CPP_OBJS = \
 	$(LLAMAFILE_OBJS) \
@@ -94,9 +95,6 @@ o/$(MODE)/llama.cpp/ggml/src/ggml-cpu/ggml-cpu-impl.o: llama.cpp/ggml/src/ggml-c
 o/$(MODE)/llama.cpp/ggml/src/ggml-cpu/ggml-cpu.o: llama.cpp/ggml/src/ggml-cpu/ggml-cpu.cpp $(COSMOCC)
 	@mkdir -p $(@D)
 	$(COMPILE.cc) -Illama.cpp/ggml/include -Illama.cpp/ggml/src -Illama.cpp/ggml/src/ggml-cpu -o $@ $<
-
-# Include the impl object in the archive
-LLAMA_CPP_SRCS_OBJS += o/$(MODE)/llama.cpp/ggml/src/ggml-cpu/ggml-cpu-impl.o
 
 # CPU-specific optimizations
 o/$(MODE)/llama.cpp/ggml/src/ggml-cpu/ggml-cpu.o: private CCFLAGS += -O3 -mgcc
