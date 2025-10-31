@@ -11,6 +11,13 @@ LLAMAFILE_SERVER_OBJS = $(LLAMAFILE_SERVER_SRCS:%.cpp=o/$(MODE)/%.o)
 LLAMAFILE_SERVER_ASSETS = $(wildcard llamafile/server/www/*)
 
 $(LLAMAFILE_SERVER_OBJS): private CCFLAGS += -g
+$(LLAMAFILE_SERVER_OBJS): private CPPFLAGS += \
+	-Illama.cpp/include \
+	-Illama.cpp/ggml/include \
+	-Illama.cpp/ggml/src \
+	-Illama.cpp/src \
+	-Illama.cpp/common \
+	-Illama.cpp/vendor
 
 o/$(MODE)/llamafile/server/server.a:						\
 		$(filter-out %_test.o,$(LLAMAFILE_SERVER_OBJS))
@@ -19,8 +26,9 @@ o/$(MODE)/llamafile/server/main:						\
 		o/$(MODE)/llamafile/server/main.o				\
 		o/$(MODE)/llamafile/server/main.1.asc.zip.o			\
 		o/$(MODE)/llamafile/server/server.a				\
+		$(filter-out %_test.o %/addnl.o %/bincompare.o %/pick_a_warp_kernel.o %/slicehf.o %/explain_a_warp_kernel.o %/hex2xterm.o %/high.o %/zipalign.o %/zipcheck.o %/simple.o %/tokenize.o %/curl.o %/chatbot_main.o,$(LLAMAFILE_OBJS))	\
+		o/$(MODE)/llama.cpp/llava/llava_stub.o				\
 		o/$(MODE)/llama.cpp/llama.cpp.a					\
-		o/$(MODE)/llama.cpp/llava/llava.a				\
 		o/$(MODE)/third_party/double-conversion/double-conversion.a	\
 		o/$(MODE)/third_party/stb/stb.a					\
 		o/$(MODE)/third_party/sqlite/sqlite3.a				\

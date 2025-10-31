@@ -98,7 +98,7 @@ std::string describe_token(llama_token token) {
         return "§";
     if (token == llama_vocab_eos(vocab))
         return "∎";
-    if (token == llama_vocab_cls(vocab))
+    if (token == llama_vocab_bos(vocab))  // cls is same as bos in newer API
         return "⌘";
     if (token == llama_vocab_sep(vocab))
         return "⋯";
@@ -242,7 +242,7 @@ void on_manual(const std::vector<std::string> &args) {
 
 void on_context(const std::vector<std::string> &args) {
     int configured_context = llama_n_ctx(g_ctx);
-    int max_context = llama_n_ctx_train(g_model);
+    int max_context = llama_model_n_ctx_train(g_model);
     printf("%d out of %d context tokens used (%d tokens remaining)\n", tokens_used(),
            configured_context, configured_context - tokens_used());
     if (configured_context < max_context)

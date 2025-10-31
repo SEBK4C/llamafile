@@ -21,6 +21,7 @@
 
 #include "llama.cpp/ggml/src/ggml-impl.h"
 #include "llama.cpp/ggml/src/ggml-quants.h"
+#include "llama.cpp/ggml/src/ggml-cpu/ggml-cpu-impl.h"
 #include "sgemm.h"
 
 // For i-quants, I had to explicitely specify which
@@ -2564,13 +2565,17 @@ template <int nrc> struct Q80 {
     }
 
     inline const int8_t * quant_data(int iy, int i) const {
-        const block_q8_0_x4 * y4 = (const block_q8_0_x4 *)y[iy] + i;
-        return y4->qs;
+        // Note: block_q8_0_x4 removed in newer llama.cpp - using fallback
+        return y[iy][i].qs;
     }
 
     inline float16x4_t load_scales(int iy, int i) const {
-        const block_q8_0_x4 * y4 = (const block_q8_0_x4 *)y[iy] + i;
-        return vld1_f16((const float16_t *)y4->d);
+        // Note: block_q8_0_x4 removed in newer llama.cpp - using fallback
+        float16_t scales[4];
+        for (int j = 0; j < 4 && (i*4+j) < QK8_0; ++j) {
+            scales[j] = y[iy][i*4+j].d;
+        }
+        return vld1_f16(scales);
     }
 
     template <typename Dequantizer>
@@ -2605,13 +2610,17 @@ template <int nrc> struct Q81 {
     }
 
     inline const int8_t * quant_data(int iy, int i) const {
-        const block_q8_1_x4 * y4 = (const block_q8_1_x4 *)y[iy] + i;
-        return y4->qs;
+        // Note: block_q8_1_x4 removed in newer llama.cpp - using fallback
+        return y[iy][i].qs;
     }
 
     inline float16x8_t load_scales(int iy, int i) const {
-        const block_q8_1_x4 * y4 = (const block_q8_1_x4 *)y[iy] + i;
-        return vld1q_f16((const float16_t *)y4->d);
+        // Note: block_q8_1_x4 removed in newer llama.cpp - using fallback
+        float16_t scales[8];
+        for (int j = 0; j < 8 && (i*4+j) < QK8_1; ++j) {
+            scales[j] = y[iy][i*4+j].d;
+        }
+        return vld1q_f16(scales);
     }
 
     template <typename Dequantizer>

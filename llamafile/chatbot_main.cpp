@@ -24,13 +24,16 @@
 #include <vector>
 
 #include "llama.cpp/common/common.h"
+#include "llama.cpp/common/arg.h"
 #include "llama.cpp/ggml/include/ggml-cuda.h"
 #include "llama.cpp/tools/mtmd/clip.h"
 // #include "llama.cpp/tools/server/server.h" // TODO: Update when server integration is needed
 #include "llamafile/color.h"
 #include "llamafile/compute.h"
 #include "llamafile/llama.h"
+#include "llamafile/llamafile.h"  // For llamafile_has_gpu, llamafile_has_metal, llamafile_has, etc.
 #include "llamafile/string.h"
+#include "llamafile/version.h"  // For LLAMAFILE_VERSION_STRING
 
 namespace lf {
 namespace chatbot {
@@ -49,7 +52,8 @@ pthread_mutex_t g_lock = PTHREAD_MUTEX_INITIALIZER;
 std::string g_listen_url;
 
 std::string describe_compute(void) {
-    if (llama_n_gpu_layers(g_model) > 0 && llamafile_has_gpu()) {
+    // Updated: Check g_params.n_gpu_layers instead of querying model (API changed in llama.cpp)
+    if (g_params.n_gpu_layers > 0 && llamafile_has_gpu()) {
         if (llamafile_has_metal()) {
             return "Apple Metal GPU";
         } else {
@@ -81,12 +85,15 @@ void on_server_listening(const char *host, int port) {
 }
 
 void *server_thread(void *arg) {
-    ServerArgs *sargs = (ServerArgs *)arg;
-    server_log_json = false;
-    g_server_background_mode = true;
-    g_server_force_llama_model = g_model;
-    g_server_on_listening = on_server_listening;
-    exit(server_cli(sargs->argc, sargs->argv));
+    // TODO: Update server integration when llama.cpp/tools/server/server.h API is available
+    // ServerArgs *sargs = (ServerArgs *)arg;
+    // server_log_json = false;
+    // g_server_background_mode = true;
+    // g_server_force_llama_model = g_model;
+    // g_server_on_listening = on_server_listening;
+    // exit(server_cli(sargs->argc, sargs->argv));
+    fprintf(stderr, "error: server mode not yet implemented in modernized llamafile\n");
+    exit(1);
 }
 
 const char *tip() {
@@ -118,13 +125,15 @@ int main(int argc, char **argv) {
 
     // override defaults for some flags
     g_params.n_batch = 256; // for better progress indication
-    g_params.sparams.temp = 0; // don't believe in randomness by default
+    // Updated: sparams is now sampling (API changed in llama.cpp)
+    g_params.sampling.temp = 0; // don't believe in randomness by default
     g_params.prompt = DEFAULT_SYSTEM_PROMPT;
 
     // parse flags (sadly initializes gpu support as side-effect)
     print_ephemeral("loading backend...");
     llama_backend_init();
-    if (!gpt_params_parse(argc, argv, g_params)) { // also loads gpu module
+    // Updated: gpt_params_parse → common_params_parse (API changed in llama.cpp)
+    if (!common_params_parse(argc, argv, g_params, LLAMA_EXAMPLE_MAIN, nullptr)) { // also loads gpu module
         fprintf(stderr, "error: failed to parse flags\n");
         exit(1);
     }
@@ -132,19 +141,25 @@ int main(int argc, char **argv) {
 
     // setup logging
     FLAG_log_disable = false;
-    if (!g_params.verbosity)
-        log_disable();
+    if (!g_params.verbosity) {
+        // Updated: Just set FLAG_log_disable directly instead of calling log_disable()
+        FLAG_log_disable = true;
+    }
 
     print_ephemeral("loading model...");
-    llama_model_params model_params = llama_model_params_from_gpt_params(g_params);
-    g_model = llama_load_model_from_file(g_params.model.c_str(), model_params);
+    // Updated: llama_model_params_from_gpt_params → common_model_params_to_llama (API changed in llama.cpp)
+    llama_model_params model_params = common_model_params_to_llama(g_params);
+    // Updated: g_params.model is now a struct with .path member (API changed in llama.cpp)
+    // Updated: llama_load_model_from_file → llama_model_load_from_file (renamed in llama.cpp)
+    g_model = llama_model_load_from_file(g_params.model.path.c_str(), model_params);
     clear_ephemeral();
     if (g_model == NULL) {
-        fprintf(stderr, "%s: failed to load model%s\n", g_params.model.c_str(), tip());
+        fprintf(stderr, "%s: failed to load model%s\n", g_params.model.path.c_str(), tip());
         exit(2);
     }
-    if (g_params.n_ctx <= 0 || g_params.n_ctx > llama_n_ctx_train(g_model))
-        g_params.n_ctx = llama_n_ctx_train(g_model);
+    // Updated: llama_n_ctx_train → llama_model_n_ctx_train (renamed in llama.cpp)
+    if (g_params.n_ctx <= 0 || g_params.n_ctx > llama_model_n_ctx_train(g_model))
+        g_params.n_ctx = llama_model_n_ctx_train(g_model);
     if (g_params.n_ctx < g_params.n_batch)
         g_params.n_batch = g_params.n_ctx;
 
@@ -167,7 +182,7 @@ int main(int argc, char **argv) {
     if (!FLAG_nologo) {
         printf(BOLD "software" UNBOLD ": llamafile " LLAMAFILE_VERSION_STRING "\n" //
                BOLD "model" UNBOLD ":    %s\n",
-               basename(g_params.model).c_str());
+               basename(g_params.model.path).c_str());
         if (is_base_model())
             printf(BOLD "mode" UNBOLD ":     RAW TEXT COMPLETION (base model)\n");
         printf(BOLD "compute" UNBOLD ":  %s\n", describe_compute().c_str());
@@ -177,8 +192,10 @@ int main(int argc, char **argv) {
     }
 
     print_ephemeral("initializing context...");
-    llama_context_params ctx_params = llama_context_params_from_gpt_params(g_params);
-    g_ctx = llama_new_context_with_model(g_model, ctx_params);
+    // Updated: llama_context_params_from_gpt_params → common_context_params_to_llama (API changed in llama.cpp)
+    llama_context_params ctx_params = common_context_params_to_llama(g_params);
+    // Updated: llama_new_context_with_model → llama_init_from_model (renamed in llama.cpp)
+    g_ctx = llama_init_from_model(g_model, ctx_params);
     clear_ephemeral();
     if (!g_ctx) {
         fprintf(stderr, "error: failed to initialize context%s\n", tip());
@@ -190,7 +207,12 @@ int main(int argc, char **argv) {
 
     if (FLAG_mmproj) {
         print_ephemeral("initializing vision model...");
-        g_clip = clip_model_load(FLAG_mmproj, g_params.verbosity);
+        // Updated: clip_model_load → clip_init (API changed in llama.cpp)
+        clip_context_params clip_params;
+        clip_params.use_gpu = (g_params.n_gpu_layers > 0);
+        clip_params.verbosity = g_params.verbosity > 0 ? GGML_LOG_LEVEL_INFO : GGML_LOG_LEVEL_ERROR;
+        auto clip_res = clip_init(FLAG_mmproj, clip_params);
+        g_clip = clip_res.ctx_v;  // Use vision context
         clear_ephemeral();
         if (!g_clip) {
             fprintf(stderr, "%s: failed to initialize clip image model%s\n", FLAG_mmproj, tip());
@@ -211,7 +233,8 @@ int main(int argc, char **argv) {
     clear_ephemeral();
 
     print_ephemeral("freeing model...");
-    llama_free_model(g_model);
+    // Updated: llama_free_model → llama_model_free (renamed in llama.cpp)
+    llama_model_free(g_model);
     clear_ephemeral();
 
     print_ephemeral("freeing backend...");

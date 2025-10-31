@@ -20,7 +20,7 @@
 #include <cmath>
 #include <unistd.h>
 
-#include "llama.cpp/cores.h"
+#include "llama.cpp/common/common.h"
 
 namespace {
 namespace ansiBLAS {

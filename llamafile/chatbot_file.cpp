@@ -22,6 +22,7 @@
 #include <vector>
 
 #include "llama.cpp/common/common.h"
+#include "llamafile/chat_template.h"
 #include "llamafile/color.h"
 #include "llamafile/image.h"
 #include "llamafile/llama.h"
@@ -84,20 +85,20 @@ void on_upload(const std::vector<std::string> &args) {
         markdown += "``````";
     }
     std::vector<llama_chat_message> chat = {{"system", markdown.c_str()}};
-    char buf[16384];
-    int32_t len = llama_chat_apply_template(
+
+    // Use safe chat template rendering to prevent crashes from large prompts
+    auto result = lf::chat::render_chat_template_safe(
         g_params.chat_template.empty() ? nullptr : g_params.chat_template.c_str(),
-        chat.data(), chat.size(), DONT_ADD_ASSISTANT, buf, sizeof(buf));
-    std::string msg;
-    if (len > (int32_t)sizeof(buf)) {
-        msg.resize(len);
-        llama_chat_apply_template(
-            g_params.chat_template.empty() ? nullptr : g_params.chat_template.c_str(),
-            chat.data(), chat.size(), DONT_ADD_ASSISTANT, msg.data(), msg.size());
-    } else {
-        msg = std::string(buf, len);
+        chat,
+        DONT_ADD_ASSISTANT);
+
+    if (!result.success) {
+        err("%s: %s", path, result.error_message.c_str());
+        rewind(tokens_used_before);
+        return;
     }
-    if (!eval_string(msg, DONT_ADD_SPECIAL, PARSE_SPECIAL)) {
+
+    if (!eval_string(result.content, DONT_ADD_SPECIAL, PARSE_SPECIAL)) {
         rewind(tokens_used_before);
         return;
     }
