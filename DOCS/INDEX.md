@@ -11,8 +11,9 @@ Quick access to all modernization documentation.
 5. **AGENT_HANDOFF.md** - Session handoff (15 KB)
 6. **NEXT_STEPS_AGENT_GUIDE.md** - Task guide (29 KB)
 7. **API_MIGRATION_QUICK_REF.md** - API reference (10 KB)
+8. **CPU_BACKEND_STATIC_LINKING.md** - CPU backend linking issue analysis (15 KB)
 
-**Total:** ~90 KB of comprehensive documentation
+**Total:** ~105 KB of comprehensive documentation
 
 ## 🎯 Read This Based On Your Role
 
@@ -28,6 +29,9 @@ Quick access to all modernization documentation.
 ### New Team Member
 → **SPEC.txt** → **MODERNIZATION_PROGRESS.md**
 
+### Debugging Build Issues
+→ **CPU_BACKEND_STATIC_LINKING.md** (static linking problems)
+
 ---
 
-**Last Updated:** October 31, 2025
+**Last Updated:** October 31, 2024
