@@ -21,8 +21,8 @@
 #include <string>
 #include <vector>
 
-#include "llama.cpp/common.h"
-#include "llama.cpp/llama.h"
+#include "llama.cpp/common/common.h"
+#include "llama.cpp/include/llama.h"
 #include "llamafile/llamafile.h"
 
 static bool eval_tokens(struct llama_context *ctx_llama, std::vector<llama_token> tokens,

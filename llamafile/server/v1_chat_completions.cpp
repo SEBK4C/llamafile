@@ -16,8 +16,8 @@
 // limitations under the License.
 
 #include "client.h"
-#include "llama.cpp/llama.h"
-#include "llama.cpp/sampling.h"
+#include "llama.cpp/include/llama.h"
+#include "llama.cpp/common/sampling.h"
 #include "llamafile/json.h"
 #include "llamafile/llama.h"
 #include "llamafile/macros.h"
@@ -55,7 +55,7 @@ struct V1ChatCompletionParams
     double frequency_penalty = 0;
     std::string user;
     std::string model;
-    std::vector<llama_chat_msg> messages;
+    std::vector<llama_chat_message> messages;
     std::vector<std::vector<Atom>> stop;
     std::string grammar;
 
@@ -175,10 +175,10 @@ has_images(const std::vector<Atom>& atoms)
 }
 
 static int
-count_bytes(const std::vector<llama_chat_msg>& messages)
+count_bytes(const std::vector<llama_chat_message>& messages)
 {
     int n = 0;
-    for (const llama_chat_msg& message : messages)
+    for (const llama_chat_message& message : messages)
         n += message.content.size();
     return n;
 }
