@@ -15,9 +15,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#include "llama.cpp/ggml-backend-impl.h"
-#include "llama.cpp/ggml-cuda.h"
-#include "llama.cpp/ggml-metal.h"
+#include "llama.cpp/ggml/src/ggml-backend-impl.h"
+#include "llama.cpp/ggml/include/ggml-cuda.h"
+#include "llama.cpp/ggml/include/ggml-metal.h"
 #include "llamafile/llamafile.h"
 #include "llamafile/log.h"
 #include "llamafile/x.h"
@@ -38,18 +38,18 @@
 #include <time.h>
 #include <unistd.h>
 
-__static_yoink("llama.cpp/ggml.h");
+__static_yoink("llama.cpp/ggml/include/ggml.h");
 __static_yoink("llamafile/compcap.cu");
 __static_yoink("llamafile/tinyblas.h");
 __static_yoink("llamafile/tinyblas.cu");
-__static_yoink("llama.cpp/ggml-impl.h");
+__static_yoink("llama.cpp/ggml/src/ggml-impl.h");
 __static_yoink("llamafile/llamafile.h");
-__static_yoink("llama.cpp/ggml-cuda.h");
-__static_yoink("llama.cpp/ggml-alloc.h");
-__static_yoink("llama.cpp/ggml-cuda.cu");
-__static_yoink("llama.cpp/ggml-common.h");
-__static_yoink("llama.cpp/ggml-backend.h");
-__static_yoink("llama.cpp/ggml-backend-impl.h");
+__static_yoink("llama.cpp/ggml/include/ggml-cuda.h");
+__static_yoink("llama.cpp/ggml/include/ggml-alloc.h");
+__static_yoink("llama.cpp/ggml/src/ggml-cuda/ggml-cuda.cu");
+__static_yoink("llama.cpp/ggml/src/ggml-common.h");
+__static_yoink("llama.cpp/ggml/include/ggml-backend.h");
+__static_yoink("llama.cpp/ggml/src/ggml-backend-impl.h");
 
 // yoink the fastest zlib deflate impl from cosmo libc
 __static_yoink("_Cz_inflateInit2");
@@ -83,40 +83,46 @@ __static_yoink("_Cz_inflateEnd");
              : "/nologo /EHsc /O2 /GR /MT"), \
         COMMON_FLAGS
 
+// Backward compatibility struct for old API
+// The new llama.cpp removed this, but localscore still uses it
+struct ggml_cuda_device_properties {
+    char name[256];
+    size_t totalGlobalMem;
+    int multiProcessorCount;
+};
+
 static const struct Source {
     const char *zip;
     const char *name;
 } srcs[] = {
-    {"/zip/llama.cpp/ggml.h", "ggml.h"},
+    {"/zip/llama.cpp/ggml/include/ggml.h", "ggml.h"},
     {"/zip/llamafile/compcap.cu", "compcap.cu"},
     {"/zip/llamafile/llamafile.h", "llamafile.h"},
     {"/zip/llamafile/tinyblas.h", "tinyblas.h"},
     {"/zip/llamafile/tinyblas.cu", "tinyblas.cu"},
-    {"/zip/llama.cpp/ggml-impl.h", "ggml-impl.h"},
-    {"/zip/llama.cpp/ggml-cuda.h", "ggml-cuda.h"},
-    {"/zip/llama.cpp/ggml-alloc.h", "ggml-alloc.h"},
-    {"/zip/llama.cpp/ggml-common.h", "ggml-common.h"},
-    {"/zip/llama.cpp/ggml-backend.h", "ggml-backend.h"},
-    {"/zip/llama.cpp/ggml-backend-impl.h", "ggml-backend-impl.h"},
-    {"/zip/llama.cpp/ggml-cuda.cu", "ggml-cuda.cu"}, // must come last
+    {"/zip/llama.cpp/ggml/src/ggml-impl.h", "ggml-impl.h"},
+    {"/zip/llama.cpp/ggml/include/ggml-cuda.h", "ggml-cuda.h"},
+    {"/zip/llama.cpp/ggml/include/ggml-alloc.h", "ggml-alloc.h"},
+    {"/zip/llama.cpp/ggml/src/ggml-common.h", "ggml-common.h"},
+    {"/zip/llama.cpp/ggml/include/ggml-backend.h", "ggml-backend.h"},
+    {"/zip/llama.cpp/ggml/src/ggml-backend-impl.h", "ggml-backend-impl.h"},
+    {"/zip/llama.cpp/ggml/src/ggml-cuda/ggml-cuda.cu", "ggml-cuda.cu"}, // must come last
 };
 
 static struct Cuda {
     bool supported;
     bool has_amd_gpu;
     atomic_uint once;
-    typeof(ggml_cuda_link) *GGML_CALL link;
-    typeof(ggml_backend_cuda_buffer_type) *GGML_CALL buffer_type;
-    typeof(ggml_backend_cuda_host_buffer_type) *GGML_CALL host_buffer_type;
-    typeof(ggml_backend_cuda_init) *GGML_CALL backend_init;
-    typeof(ggml_backend_cuda_split_buffer_type) *GGML_CALL split_buffer_type;
-    typeof(ggml_backend_cuda_reg_devices) *GGML_CALL reg_devices;
-    typeof(ggml_backend_cuda_get_device_properties) *GGML_CALL get_device_properties;
-    typeof(ggml_backend_cuda_get_device_memory) *GGML_CALL get_device_memory;
-    typeof(ggml_backend_cuda_get_device_count) *GGML_CALL get_device_count;
-    typeof(ggml_backend_cuda_unregister_host_buffer) *GGML_CALL unreg_host_buf;
-    typeof(ggml_backend_cuda_register_host_buffer) *GGML_CALL register_host_buffer;
-    typeof(ggml_backend_cuda_get_device_description) *GGML_CALL get_description;
+    ggml_backend_buffer_type_t (*buffer_type)(int);
+    ggml_backend_buffer_type_t (*host_buffer_type)(void);
+    ggml_backend_t (*backend_init)(int);
+    ggml_backend_buffer_type_t (*split_buffer_type)(int, const float *);
+    ggml_backend_reg_t (*reg)(void);
+    void (*get_device_memory)(int, size_t *, size_t *);
+    int (*get_device_count)(void);
+    void (*unreg_host_buf)(void *);
+    bool (*register_host_buffer)(void *, size_t);
+    void (*get_description)(int, char *, size_t);
 } ggml_cuda;
 
 static const char *Dlerror(void) {
@@ -723,13 +729,11 @@ static bool link_cuda_dso(const char *dso, const char *dir) {
 
     // import functions
     bool ok = true;
-    ok &= !!(ggml_cuda.link = imp(lib, "ggml_cuda_link"));
+    ok &= !!(ggml_cuda.reg = imp(lib, "ggml_backend_cuda_reg"));
     ok &= !!(ggml_cuda.host_buffer_type = imp(lib, "ggml_backend_cuda_host_buffer_type"));
     ok &= !!(ggml_cuda.buffer_type = imp(lib, "ggml_backend_cuda_buffer_type"));
     ok &= !!(ggml_cuda.backend_init = imp(lib, "ggml_backend_cuda_init"));
     ok &= !!(ggml_cuda.split_buffer_type = imp(lib, "ggml_backend_cuda_split_buffer_type"));
-    ok &= !!(ggml_cuda.reg_devices = imp(lib, "ggml_backend_cuda_reg_devices"));
-    ok &= !!(ggml_cuda.get_device_properties= imp(lib, "ggml_backend_cuda_get_device_properties"));
     ok &= !!(ggml_cuda.get_device_memory = imp(lib, "ggml_backend_cuda_get_device_memory"));
     ok &= !!(ggml_cuda.get_device_count = imp(lib, "ggml_backend_cuda_get_device_count"));
     ok &= !!(ggml_cuda.unreg_host_buf = imp(lib, "ggml_backend_cuda_unregister_host_buffer"));
@@ -741,8 +745,8 @@ static bool link_cuda_dso(const char *dso, const char *dir) {
         return false;
     }
 
-    // ask the library if actual gpu devices exist
-    if (ggml_cuda.link(ggml_backend_api())) {
+    // check if actual gpu devices exist  
+    if (ggml_cuda.get_device_count() > 0) {
         tinylog(__func__, ": GPU support loaded\n", NULL);
         return true;
     } else {
@@ -980,70 +984,84 @@ bool llamafile_has_amd_gpu(void) {
     return ggml_cuda.has_amd_gpu;
 }
 
-GGML_CALL ggml_backend_buffer_type_t ggml_backend_cuda_buffer_type(int device) {
+ggml_backend_buffer_type_t ggml_backend_cuda_buffer_type(int device) {
     if (!llamafile_has_cuda())
         return 0;
     return ggml_cuda.buffer_type(device);
 }
 
-GGML_CALL ggml_backend_buffer_type_t ggml_backend_cuda_host_buffer_type() {
+ggml_backend_buffer_type_t ggml_backend_cuda_host_buffer_type(void) {
     if (!llamafile_has_cuda())
         return 0;
     return ggml_cuda.host_buffer_type();
 }
 
-GGML_CALL ggml_backend_t ggml_backend_cuda_init(int device) {
+ggml_backend_t ggml_backend_cuda_init(int device) {
     if (!llamafile_has_cuda())
         return 0;
     return ggml_cuda.backend_init(device);
 }
 
-GGML_CALL ggml_backend_buffer_type_t
-ggml_backend_cuda_split_buffer_type(const float *tensor_split) {
+ggml_backend_buffer_type_t ggml_backend_cuda_split_buffer_type(int main_device, const float *tensor_split) {
     if (!llamafile_has_cuda())
         return 0;
-    return ggml_cuda.split_buffer_type(tensor_split);
+    return ggml_cuda.split_buffer_type(main_device, tensor_split);
 }
 
-GGML_CALL int ggml_backend_cuda_reg_devices(void) {
+// Note: ggml_backend_cuda_reg_devices was removed in upstream llama.cpp
+// Keeping stub for backward compatibility
+int ggml_backend_cuda_reg_devices(void) {
     if (!llamafile_has_cuda())
         return 0;
-    return ggml_cuda.reg_devices();
+    // The new API uses ggml_backend_cuda_reg() instead
+    // Return the device count as a proxy
+    return ggml_cuda.get_device_count();
 }
 
-GGML_CALL void ggml_backend_cuda_get_device_properties(int device, struct ggml_cuda_device_properties * properties) {
+// Note: ggml_cuda_device_properties struct and this function were removed
+// Keeping stub implementation for backward compatibility with localscore
+void ggml_backend_cuda_get_device_properties(int device, struct ggml_cuda_device_properties * properties) {
+    if (!llamafile_has_cuda() || !properties)
+        return;
+    // Zero out the struct since the new API doesn't provide this
+    memset(properties, 0, sizeof(*properties));
+    // At minimum, get the description
+    char desc[256];
+    ggml_cuda.get_description(device, desc, sizeof(desc));
+    snprintf(properties->name, sizeof(properties->name), "%s", desc);
+    // Get memory info if available
+    size_t free, total;
+    ggml_cuda.get_device_memory(device, &free, &total);
+    properties->totalGlobalMem = total;
+}
+
+void ggml_backend_cuda_get_device_memory(int device, size_t *free, size_t *total) {
     if (!llamafile_has_cuda())
         return;
-    return ggml_cuda.get_device_properties(device, properties);
+    ggml_cuda.get_device_memory(device, free, total);
 }
 
-GGML_CALL void ggml_backend_cuda_get_device_memory(int device, size_t *free, size_t *total) {
-    if (!llamafile_has_cuda())
-        return;
-    return ggml_cuda.get_device_memory(device, free, total);
-}
-
-GGML_CALL int ggml_backend_cuda_get_device_count(void) {
+int ggml_backend_cuda_get_device_count(void) {
     if (!llamafile_has_cuda())
         return 0;
     return ggml_cuda.get_device_count();
 }
 
-GGML_CALL void ggml_backend_cuda_unregister_host_buffer(void *buffer) {
+void ggml_backend_cuda_unregister_host_buffer(void *buffer) {
     if (!llamafile_has_cuda())
         return;
-    return ggml_cuda.unreg_host_buf(buffer);
+    ggml_cuda.unreg_host_buf(buffer);
 }
 
-GGML_CALL bool ggml_backend_cuda_register_host_buffer(void *buffer, size_t size) {
+bool ggml_backend_cuda_register_host_buffer(void *buffer, size_t size) {
     if (!llamafile_has_cuda())
         return false;
     return ggml_cuda.register_host_buffer(buffer, size);
 }
 
-GGML_CALL void ggml_backend_cuda_get_device_description(int device, char *description,
-                                                        size_t description_size) {
+void ggml_backend_cuda_get_device_description(int device, char *description,
+                                              size_t description_size) {
     if (!llamafile_has_cuda())
         return;
-    return ggml_cuda.get_description(device, description, description_size);
+    ggml_cuda.get_description(device, description, description_size);
 }

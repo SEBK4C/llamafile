@@ -22,8 +22,8 @@
 #include <cstdio>
 #include <string_view>
 
-#include "llama.cpp/common.h"
-#include "llama.cpp/llama.h"
+#include "llama.cpp/common/common.h"
+#include "llama.cpp/include/llama.h"
 #include "llamafile/bestline.h"
 #include "llamafile/color.h"
 #include "llamafile/highlight/highlight.h"
@@ -115,9 +115,20 @@ void repl() {
         if (is_base_model()) {
             msg = g_params.prompt;
         } else {
-            std::vector<llama_chat_msg> chat = {{"system", g_params.prompt}};
-            msg = llama_chat_apply_template(g_model, g_params.chat_template, chat,
-                                            DONT_ADD_ASSISTANT);
+            std::vector<llama_chat_message> chat = {{"system", g_params.prompt.c_str()}};
+            char buf[8192];
+            int32_t len = llama_chat_apply_template(
+                g_params.chat_template.empty() ? nullptr : g_params.chat_template.c_str(),
+                chat.data(), chat.size(), DONT_ADD_ASSISTANT, buf, sizeof(buf));
+            if (len > (int32_t)sizeof(buf)) {
+                std::string large_buf(len, '\0');
+                llama_chat_apply_template(
+                    g_params.chat_template.empty() ? nullptr : g_params.chat_template.c_str(),
+                    chat.data(), chat.size(), DONT_ADD_ASSISTANT, large_buf.data(), large_buf.size());
+                msg = large_buf;
+            } else {
+                msg = std::string(buf, len);
+            }
         }
         if (!eval_string(msg, DONT_ADD_SPECIAL, PARSE_SPECIAL))
             exit(6);
@@ -170,8 +181,20 @@ void repl() {
         if (is_base_model()) {
             msg = line;
         } else {
-            std::vector<llama_chat_msg> chat = {{get_role_name(g_role), line}};
-            msg = llama_chat_apply_template(g_model, g_params.chat_template, chat, add_assi);
+            std::vector<llama_chat_message> chat = {{get_role_name(g_role), line}};
+            char buf[8192];
+            int32_t len = llama_chat_apply_template(
+                g_params.chat_template.empty() ? nullptr : g_params.chat_template.c_str(),
+                chat.data(), chat.size(), add_assi, buf, sizeof(buf));
+            if (len > (int32_t)sizeof(buf)) {
+                std::string large_buf(len, '\0');
+                llama_chat_apply_template(
+                    g_params.chat_template.empty() ? nullptr : g_params.chat_template.c_str(),
+                    chat.data(), chat.size(), add_assi, large_buf.data(), large_buf.size());
+                msg = large_buf;
+            } else {
+                msg = std::string(buf, len);
+            }
         }
         if (!eval_string(msg, DONT_ADD_SPECIAL, PARSE_SPECIAL)) {
             rewind(tokens_used_before);

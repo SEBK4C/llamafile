@@ -23,10 +23,10 @@
 #include <string>
 #include <vector>
 
-#include "llama.cpp/common.h"
-#include "llama.cpp/ggml-cuda.h"
-#include "llama.cpp/llava/clip.h"
-#include "llama.cpp/server/server.h"
+#include "llama.cpp/common/common.h"
+#include "llama.cpp/ggml/include/ggml-cuda.h"
+#include "llama.cpp/tools/mtmd/clip.h"
+// #include "llama.cpp/tools/server/server.h" // TODO: Update when server integration is needed
 #include "llamafile/color.h"
 #include "llamafile/compute.h"
 #include "llamafile/llama.h"
@@ -40,7 +40,7 @@ struct ServerArgs {
     char **argv;
 };
 
-gpt_params g_params;
+common_params g_params;
 clip_ctx *g_clip;
 llama_model *g_model;
 llama_context *g_ctx;
