@@ -16,8 +16,8 @@
 // limitations under the License.
 
 #include "slot.h"
-#include "llama.cpp/llava/clip.h"
-#include "llama.cpp/llava/llava.h"
+#include "llama.cpp/tools/mtmd/clip.h"
+#include "llama.cpp/tools/mtmd/mtmd.h"
 #include "llamafile/image.h"
 #include "llamafile/llama.h"
 #include "llamafile/llamafile.h"
@@ -89,19 +89,17 @@ Slot::~Slot()
 {
     if (ctx_)
         llama_free(ctx_);
-    if (clip_ctx_)
-        clip_free(clip_ctx_);
+    // TODO: Multimodal support temporarily disabled during modernization
+    // if (clip_ctx_)
+    //     clip_free(clip_ctx_);
 }
 
 bool
 Slot::start()
 {
     unassert(!ctx_);
-    llama_context_params cparams = {};
+    llama_context_params cparams = llama_context_default_params();
     cparams.embeddings = false;
-    cparams.embeddings_only = false;
-    cparams.logits_all = false;
-    cparams.seed = 12345;
     cparams.n_ctx = choose_ctx_size(model_);
     cparams.n_batch = FLAG_batch;
     cparams.n_ubatch = FLAG_ubatch;
@@ -121,13 +119,13 @@ Slot::start()
     cparams.offload_kqv = true;
     cparams.type_k = GGML_TYPE_F16;
     cparams.type_v = GGML_TYPE_F16;
-    cparams.flash_attn = FLAG_flash_attn;
     system_fingerprint_ = generate_system_fingerprint(&cparams);
-    if (!(ctx_ = llama_new_context_with_model(model_, cparams)))
+    if (!(ctx_ = llama_init_from_model(model_, cparams)))
         return false;
-    if (FLAG_mmproj)
-        if (!(clip_ctx_ = clip_model_load(FLAG_mmproj, FLAG_verbose)))
-            return false;
+    // TODO: Migrate to mtmd (multimodal) API - temporarily disabled
+    // if (FLAG_mmproj)
+    //     if (!(clip_ctx_ = clip_model_load(FLAG_mmproj, FLAG_verbose)))
+    //         return false;
     return true;
 }
 
@@ -170,11 +168,12 @@ Slot::eval_tokens(const std::vector<int>& tokens,
         int n_eval = N - i;
         if (n_eval > FLAG_batch)
             n_eval = FLAG_batch;
-        if (llama_decode(ctx_,
-                         { .n_tokens = n_eval,
-                           .token = &toks[i],
-                           .all_pos_0 = used,
-                           .all_pos_1 = 1 }))
+        llama_batch batch = llama_batch_get_one(&toks[i], n_eval);
+        for (int j = 0; j < n_eval; ++j) {
+            batch.pos[j] = used + j;
+            batch.seq_id[j][0] = 0;
+        }
+        if (llama_decode(ctx_, batch))
             return decode_token_failed;
         for (int j = 0; j < n_eval; ++j)
             history_.emplace_back(toks[i + j]);
@@ -190,45 +189,9 @@ int
 Slot::eval_image(const std::string_view& bytes,
                  const ProgressCallback& progress)
 {
-    if (!ctx_)
-        return uninitialized;
-    if (!clip_ctx_)
-        return no_vision_model;
-    llava_image_embed* image_embed =
-      llava_image_embed_make_with_bytes(clip_ctx_,
-                                        FLAG_threads_batch,
-                                        (const unsigned char*)bytes.data(),
-                                        bytes.size());
-    if (!image_embed)
-        return encode_image_failed;
-    int used = ctx_used();
-    int N = image_embed->n_image_pos;
-    if (used + N > ctx_size()) {
-        llava_image_embed_free(image_embed);
-        return out_of_context;
-    }
-    int processed = 0;
-    int n_embd = llama_n_embd(llama_get_model(ctx_));
-    for (int i = 0; i < N; i += FLAG_batch) {
-        int n_eval = N - i;
-        if (n_eval > FLAG_batch)
-            n_eval = FLAG_batch;
-        if (llama_decode(ctx_,
-                         { .n_tokens = n_eval,
-                           .embd = image_embed->embed + i * n_embd,
-                           .all_pos_0 = used,
-                           .all_pos_1 = 1 })) {
-            llava_image_embed_free(image_embed);
-            return decode_image_failed;
-        }
-        used += n_eval;
-        processed += n_eval;
-        if (progress)
-            progress(processed, N);
-    }
-    llava_image_embed_free(image_embed);
-    history_.emplace_back(new Image(bytes, N));
-    return N;
+    // TODO: Migrate to mtmd (multimodal) API - temporarily disabled
+    // Vision/image processing not yet implemented in new API
+    return no_vision_model;
 }
 
 int
@@ -241,18 +204,8 @@ Slot::eval_atoms(const std::vector<Atom>& atoms,
             if (atom.is_token()) {
                 total_work += 1;
             } else if (atom.is_image()) {
-                if (!clip_ctx_)
-                    return no_vision_model;
-                llava_image_embed* image_embed =
-                  llava_image_embed_make_with_bytes(
-                    clip_ctx_,
-                    FLAG_threads_batch,
-                    (const unsigned char*)atom.image().bytes().data(),
-                    atom.image().bytes().size());
-                if (image_embed) {
-                    total_work += image_embed->n_image_pos;
-                    llava_image_embed_free(image_embed);
-                }
+                // TODO: Migrate to mtmd (multimodal) API
+                return no_vision_model;
             }
         }
         if (total_work > FLAG_batch)
@@ -295,7 +248,8 @@ Slot::prefill(const std::vector<Atom>& atoms, const ProgressCallback& progress)
 
     // handle special case of empty prefill
     if (atoms.empty()) {
-        llama_kv_cache_clear(ctx_);
+        llama_memory_t mem = llama_get_memory(ctx_);
+        llama_memory_clear(mem, true);
         history_.clear();
         return 0;
     }
@@ -380,7 +334,8 @@ Slot::prefill(const std::vector<Atom>& atoms, const ProgressCallback& progress)
     // discard tokens from kv cache
     int discarded_tokens;
     int relocated_tokens = 0;
-    if (llama_kv_cache_seq_rm(ctx_, 0, keep_tokens, relocate_p0_tokens)) {
+    llama_memory_t mem = llama_get_memory(ctx_);
+    if (llama_memory_seq_rm(mem, 0, keep_tokens, relocate_p0_tokens)) {
         if (relocate_p0 == -1) {
             discarded_tokens = history_tokens - keep_tokens;
             history_.resize(keep);
@@ -392,17 +347,17 @@ Slot::prefill(const std::vector<Atom>& atoms, const ProgressCallback& progress)
             history_.erase(history_.begin() + keep,
                            history_.begin() + relocate_p0);
             // memmove relocated tokens in kv cache
-            llama_kv_cache_seq_add(ctx_,
-                                   0,
-                                   relocate_p0_tokens,
-                                   relocate_p1_tokens,
-                                   -(relocate_p0_tokens - keep_tokens));
+            llama_memory_seq_add(mem,
+                                 0,
+                                 relocate_p0_tokens,
+                                 relocate_p1_tokens,
+                                 -(relocate_p0_tokens - keep_tokens));
         }
     } else {
         // models like Mamba can't be partially erased
         SLOG("failed to remove tokens from KV cache");
         discarded_tokens = history_tokens;
-        llama_kv_cache_clear(ctx_);
+        llama_memory_clear(mem, true);
         history_.clear();
         skipped = 0;
     }

@@ -18,8 +18,12 @@
 #include "client.h"
 #include "llama.cpp/include/llama.h"
 #include "llama.cpp/common/sampling.h"
+#include "llama.cpp/common/json-schema-to-grammar.h"
+#include "nlohmann/json.hpp"
+#include "llamafile/chat_template.h"
 #include "llamafile/json.h"
 #include "llamafile/llama.h"
+#include "llamafile/llamafile.h"
 #include "llamafile/macros.h"
 #include "llamafile/server/atom.h"
 #include "llamafile/server/cleanup.h"
@@ -108,7 +112,7 @@ cleanup_response(void* arg)
 static void
 cleanup_sampler(void* arg)
 {
-    llama_sampling_free((llama_sampling_context*)arg);
+    common_sampler_free((common_sampler*)arg);
 }
 
 static void
@@ -143,17 +147,17 @@ generate_id()
     return b;
 }
 
-static llama_sampling_context*
-create_sampler(const V1ChatCompletionParams* params)
+static common_sampler*
+create_sampler(llama_model* model, const V1ChatCompletionParams* params)
 {
-    llama_sampling_params sparams;
+    common_params_sampling sparams;
     sparams.temp = params->temperature;
     sparams.top_p = params->top_p;
     sparams.penalty_freq = params->frequency_penalty;
     sparams.penalty_present = params->presence_penalty;
     sparams.seed = params->seed;
     sparams.grammar = params->grammar;
-    return llama_sampling_init(sparams);
+    return common_sampler_init(model, sparams);
 }
 
 static std::string
@@ -179,7 +183,7 @@ count_bytes(const std::vector<llama_chat_message>& messages)
 {
     int n = 0;
     for (const llama_chat_message& message : messages)
-        n += message.content.size();
+        n += strlen(message.content);
     return n;
 }
 
@@ -249,8 +253,8 @@ Client::get_v1_chat_completions_params(V1ChatCompletionParams* params)
         if (message["content"].isString()) {
             if (message["content"].getString().empty())
                 return send_error(400, "message must not have empty content");
-            params->messages.emplace_back(message["role"].getString(),
-                                          message["content"].getString());
+            params->messages.emplace_back(message["role"].getString().c_str(),
+                                          message["content"].getString().c_str());
         } else if (message["content"].isArray()) {
             std::string combined_content;
             std::vector<Json>& content_array = message["content"].getArray();
@@ -275,7 +279,7 @@ Client::get_v1_chat_completions_params(V1ChatCompletionParams* params)
             }
             if (combined_content.empty())
                 return send_error(400, "message must not have empty content");
-            params->messages.emplace_back(message["role"].getString(), combined_content);
+            params->messages.emplace_back(message["role"].getString().c_str(), combined_content.c_str());
         } else {
             return send_error(400, "message content must be string or array");
         }
@@ -488,7 +492,7 @@ Client::get_v1_chat_completions_params(V1ChatCompletionParams* params)
                 return send_error(400, "response_format.type must be string");
             if (type.getString() == "json_object") {
                 params->grammar =
-                  json_schema_string_to_grammar("{\"type\": \"object\"}");
+                  json_schema_to_grammar(nlohmann::json::parse("{\"type\": \"object\"}"));
             } else if (type.getString() == "json_schema") {
                 Json& json_schema = response_format.getObject()["json_schema"];
                 if (!json_schema.isObject())
@@ -496,7 +500,7 @@ Client::get_v1_chat_completions_params(V1ChatCompletionParams* params)
                       400, "response_format.json_schema must be object");
                 try {
                     params->grammar =
-                      json_schema_string_to_grammar(json_schema.toString());
+                      json_schema_to_grammar(nlohmann::json::parse(json_schema.toString()));
                 } catch (const std::exception& e) {
                     SLOG("error: couldn't compile json schema: %s", e.what());
                     return send_error(400, "bad json schema");
@@ -530,12 +534,23 @@ Client::v1_chat_completions()
     // turn prompt into atom array that'll fit in context window
     for (;;) {
         // add bos token if it's needed
-        if (llama_should_add_bos_token(model_))
-            state->atoms.emplace_back(llama_token_bos(model_));
+        const llama_vocab* vocab = llama_model_get_vocab(model_);
+        if (llama_vocab_get_add_bos(vocab))
+            state->atoms.emplace_back(llama_vocab_bos(vocab));
 
-        // turn text into tokens
-        state->prompt = llama_chat_apply_template(
-          model_, FLAG_chat_template, params->messages, ADD_ASSISTANT);
+        // turn text into tokens using safe rendering
+        auto template_result = lf::chat::render_chat_template_safe(
+            FLAG_chat_template,
+            params->messages.data(),
+            params->messages.size(),
+            ADD_ASSISTANT);
+
+        if (!template_result.success) {
+            SLOG("chat template rendering failed: %s", template_result.error_message.c_str());
+            return send_error(400, template_result.error_message.c_str());
+        }
+
+        state->prompt = std::move(template_result.content);
         atomize(model_, &state->atoms, state->prompt, PARSE_SPECIAL);
 
         // we don't support multiple images yet
@@ -568,7 +583,7 @@ Client::v1_chat_completions()
         // count heuristic to determine how many messages to drop. this
         // is needed since the client sends the whole history each time
         unassert(!params->messages.empty());
-        int keep_msgs = params->messages[0].role == "system";
+        int keep_msgs = strcmp(params->messages[0].role, "system") == 0;
         int max_forget_msgs = (int)params->messages.size() - (keep_msgs + 1);
         if (max_forget_msgs <= 0) {
             SLOG("ran out of chat messages to forget");
@@ -584,7 +599,7 @@ Client::v1_chat_completions()
         int bytes_deleted = 0;
         int forgotten_msgs = 0;
         do {
-            bytes_deleted += last->content.size();
+            bytes_deleted += strlen(last->content);
             ++forgotten_msgs;
             ++last;
         } while (bytes_deleted < bytes_to_delete &&
@@ -596,7 +611,7 @@ Client::v1_chat_completions()
     }
 
     // init sampling
-    llama_sampling_context* sampler = create_sampler(params);
+    common_sampler* sampler = create_sampler(model_, params);
     if (!sampler)
         return send_error(500, "failed to create sampler");
     defer_cleanup(cleanup_sampler, sampler);
@@ -671,14 +686,14 @@ Client::v1_chat_completions()
             slot_->eval_token(llamafile_token_eot(model_));
             break;
         }
-        llama_token id = llama_sampling_sample(sampler, slot_->ctx_, NULL);
-        llama_sampling_accept(sampler, slot_->ctx_, id, APPLY_GRAMMAR);
+        llama_token id = common_sampler_sample(sampler, slot_->ctx_, -1);
+        common_sampler_accept(sampler, id, true);
         ++completion_tokens;
         if (slot_->eval_token(id) < 0) {
             SLOG("ran out of context window");
             break;
         }
-        if (llama_token_is_eog(model_, id)) {
+        if (llama_vocab_is_eog(llama_model_get_vocab(model_), id)) {
             finish_reason = "stop";
             break;
         }

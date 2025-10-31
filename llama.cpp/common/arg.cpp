@@ -47,6 +47,8 @@
 #   endif
 #elif defined(_AIX)
 #include <sys/limits.h>
+#elif defined(__COSMOPOLITAN__)
+#include <limits.h>
 #else
 #include <sys/syslimits.h>
 #endif

@@ -108,7 +108,8 @@ Client::tokenize()
     // turn text into tokens
     auto toks = new std::vector<llama_token>(params->prompt.size() + 16);
     defer_cleanup(cleanup_token_vector, toks);
-    int count = llama_tokenize(model_,
+    const llama_vocab* vocab = llama_model_get_vocab(model_);
+    int count = llama_tokenize(vocab,
                                params->prompt.data(),
                                params->prompt.size(),
                                &(*toks)[0],
@@ -136,8 +137,9 @@ Client::tokenize()
             *p++ = ',';
         p = stpcpy(p, "\n    ");
         char s[32];
+        const llama_vocab* vocab = llama_model_get_vocab(model_);
         int n =
-          llama_token_to_piece(model_, (*toks)[i], s, sizeof(s), false, true);
+          llama_token_to_piece(vocab, (*toks)[i], s, sizeof(s), false, true);
         if (n < 0) {
             SLOG("failed to turn token into string");
             return send_error(405);

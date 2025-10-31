@@ -15,7 +15,7 @@ INSTALL = install
 ARFLAGS = rcsD
 CXXFLAGS = -frtti -std=gnu++23
 CCFLAGS = -O2 -g -fexceptions -ffunction-sections -fdata-sections -mclang
-CPPFLAGS_ = -iquote. -mcosmo -DGGML_MULTIPLATFORM -Wno-attributes -DLLAMAFILE_DEBUG
+CPPFLAGS_ = -iquote. -mcosmo -DGGML_MULTIPLATFORM -DGGML_USE_CPU -Wno-attributes -DLLAMAFILE_DEBUG
 TARGET_ARCH = -Xx86_64-mtune=znver4
 
 TMPDIR = o//tmp
