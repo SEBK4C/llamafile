@@ -168,7 +168,7 @@ bool eval_string(std::string_view s, bool add_special, bool parse_special) {
     mtmd::bitmaps bitmaps;
     for (const auto &image : extraction.images) {
         mtmd::bitmap bmp(mtmd_helper_bitmap_init_from_buf(
-            g_mtmd, (const unsigned char *)image.data(), image.size()));
+            g_mtmd, (const unsigned char *)image.data(), image.size(), false));
         if (!bmp.ptr) {
             err("failed to load image");
             return false;

@@ -230,7 +230,7 @@ int cli_main(int argc, char **argv) {
 
         // Load image bitmaps
         for (const auto &image_path : params.image) {
-            mtmd::bitmap bmp(mtmd_helper_bitmap_init_from_file(mtmd_ctx, image_path.c_str()));
+            mtmd::bitmap bmp(mtmd_helper_bitmap_init_from_file(mtmd_ctx, image_path.c_str(), false));
             if (!bmp.ptr) {
                 fprintf(stderr, "error: failed to load image: %s\n", image_path.c_str());
                 cleanup(mtmd_ctx, sampler, ctx, model);
