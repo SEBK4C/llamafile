@@ -128,7 +128,7 @@ int main(int argc, char **argv) {
     if (!verbose) {
         // disable ggml verbose logging
         if (llamafile_has_metal()) {
-            llamafile_metal_log_set(llamafile_log_callback_null, NULL);
+            llamafile_metal_log_set(llamafile_log_callback_errors, NULL);
         } else if (llamafile_has_cuda() || llamafile_has_amd_gpu()) {
             llamafile_cuda_log_set(llamafile_log_callback_null, NULL);
         }

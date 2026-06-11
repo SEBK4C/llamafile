@@ -768,6 +768,17 @@ void llamafile_log_callback_null(int level, const char *text, void *user_data) {
     (void)user_data;
 }
 
+// Forwards only GGML_LOG_LEVEL_ERROR (4). Used for GPU backend dylibs in
+// non-verbose mode: a swallowed GPU error (e.g. a Metal command buffer
+// failing with kIOGPUCommandBufferCallbackErrorOutOfMemory) otherwise
+// surfaces as a bare "graph_compute failed -1" with no cause at any
+// verbosity, which is undebuggable.
+void llamafile_log_callback_errors(int level, const char *text, void *user_data) {
+    (void)user_data;
+    if (level == 4 /* GGML_LOG_LEVEL_ERROR */)
+        fprintf(stderr, "%s", text);
+}
+
 void llamafile_info(const char *backend, const char *fmt, ...) {
     if (!FLAG_verbose)
         return;

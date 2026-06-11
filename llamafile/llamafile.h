@@ -118,6 +118,7 @@ typedef void (*llamafile_log_callback)(int level, const char *text, void *user_d
 
 // No-op log callback to disable logging (defined in llamafile.c)
 void llamafile_log_callback_null(int level, const char *text, void *user_data);
+void llamafile_log_callback_errors(int level, const char *text, void *user_data);
 
 // Print an INFO-level diagnostic tagged with a backend name.
 // No-op unless FLAG_verbose is set. Adds the "<backend>: INFO: " prefix

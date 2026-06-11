@@ -340,7 +340,7 @@ int main(int argc, char **argv) {
     // triggers DSO loading which calls ggml_backend_register() in the main exe.
     if (!FLAG_verbose) {
         llama_log_set((ggml_log_callback)llamafile_log_callback_null, NULL);
-        llamafile_metal_log_set(llamafile_log_callback_null, NULL);
+        llamafile_metal_log_set(llamafile_log_callback_errors, NULL);
         llamafile_cuda_log_set(llamafile_log_callback_null, NULL);
     }
 
