@@ -1,0 +1,15 @@
+diff --git a/src/llama-kv-cache.h b/src/llama-kv-cache.h
+index f5ace6a..3d68f98 100644
+--- a/llama.cpp/src/llama-kv-cache.h
++++ b/llama.cpp/src/llama-kv-cache.h
+@@ -269,7 +269,9 @@ private:
+     // TODO: temporary until we refactor to be able to share the same cells between 2 kv caches [TAG_KV_CACHE_SHARE_CELLS]
+     llama_kv_cache * other;
+ 
+-    std::vector<llama_kv_cells> v_cells;
++    std::shared_ptr<llama_kv_cells_vec> v_cells_impl;
++
++    llama_kv_cells_vec & v_cells;
+ 
+     // maps from a sequence id to a stream id
+     std::vector<uint32_t> seq_to_stream;

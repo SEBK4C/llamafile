@@ -1,0 +1,10 @@
+diff --git a/src/llama-kv-cells.h b/src/llama-kv-cells.h
+index 10063bf..fddd31a 100644
+--- a/llama.cpp/src/llama-kv-cells.h
++++ b/llama.cpp/src/llama-kv-cells.h
+@@ -531,3 +531,5 @@ private:
+         }
+     }
+ };
++
++using llama_kv_cells_vec = std::vector<llama_kv_cells>;
