@@ -272,6 +272,11 @@ static struct llamafile *llamafile_open_file(const char *fname, const char *mode
 
 struct llamafile *llamafile_open_gguf(const char *fname, const char *mode) {
 
+    // write modes can't be validated by magic and never refer to zip
+    // members (e.g. the server saving slot KV state via llama_file)
+    if (strpbrk(mode, "wa"))
+        return llamafile_open_file(fname, mode);
+
     // support filenames like `foo.zip@weights.gguf`
     const char *p;
     if ((p = strchr(fname, '@')))
@@ -310,6 +315,13 @@ struct llamafile *llamafile_open_gguf(const char *fname, const char *mode) {
     }
     if (ZIP_READ32(buf) == ZIP_READ32("GGUF") || ZIP_READ32(buf) == ZIP_READ32("ggml")) {
         errno = EINVAL;
+        return file;
+    }
+
+    // not a gguf and not a .zip/.llamafile (PK / MZ magic): hand back the
+    // plain file so callers can read non-gguf payloads like slot KV state
+    if (ZIP_READ32(buf) != ZIP_READ32("PK\3\4") && !(buf[0] == 'M' && buf[1] == 'Z')) {
+        llamafile_seek(file, 0, SEEK_SET);
         return file;
     }
 
