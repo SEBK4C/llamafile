@@ -1,5 +1,5 @@
 diff --git a/ggml/src/ggml-metal/ggml-metal-ops.cpp b/ggml/src/ggml-metal/ggml-metal-ops.cpp
-index e2ce56e..e90a730 100644
+index e2ce56e..be352fb 100644
 --- a/llama.cpp/ggml/src/ggml-metal/ggml-metal-ops.cpp
 +++ b/llama.cpp/ggml/src/ggml-metal/ggml-metal-ops.cpp
 @@ -9,6 +9,7 @@
@@ -10,18 +10,21 @@ index e2ce56e..e90a730 100644
  #include <algorithm>
  #include <limits>
  #include <cmath>
-@@ -2056,11 +2057,28 @@ int ggml_metal_op_mul_mat(ggml_metal_op_t ctx, int idx) {
+@@ -2056,11 +2057,31 @@ int ggml_metal_op_mul_mat(ggml_metal_op_t ctx, int idx) {
  
      // find the break-even point where the matrix-matrix kernel becomes more efficient compared
      // to the matrix-vector kernel
 -    const int ne11_mm_min = 8;
 +    //
-+    // llamafile: raised 8 -> 12. Measured on Apple M4 (gemma4-12b q4_0,
-+    // uncached-prefill probe, total ms per batch): mv 283ms vs mm 453-468ms
-+    // at b=10; crossover is b~13 (mv ~411 projected vs mm ~360-420). Stock
-+    // upstream llama.cpp shows the same mm cost at these widths, so this is
-+    // kernel-level, not build-level. See docs/metal-batch-kickoff.md.
-+    const int ne11_mm_min = 12;
++    // llamafile: lowered 8 -> 7. Measured on Apple M4 (gemma4-12b q4_0,
++    // single-graph uncached-prefill probe): mv scales ~28.5 ms/col
++    // (90/131/188/245 ms at ne11=2/4/6/8) while mm is FLAT ~245 ms from
++    // ne11=3..16, so mm wins from ne11=8 up. Earlier 360-468 ms "mm"
++    // readings were two graphs summed (server checkpoint prefill split).
++    // GGML_METAL_MM_MIN=k overrides at runtime for threshold sweeps.
++    // See docs/metal-batch-kickoff.md in the superproject.
++    static const int ne11_mm_min_env = getenv("GGML_METAL_MM_MIN") ? atoi(getenv("GGML_METAL_MM_MIN")) : 0;
++    const int ne11_mm_min = ne11_mm_min_env > 0 ? ne11_mm_min_env : 7;
  
      // first try to use small-batch mat-mv kernels
      // these should be efficient for BS [2, ~8]
