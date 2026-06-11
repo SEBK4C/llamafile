@@ -1,0 +1,32 @@
+diff --git a/ggml/src/ggml-metal/ggml-metal-ops.cpp b/ggml/src/ggml-metal/ggml-metal-ops.cpp
+index e2ce56e..71044b1 100644
+--- a/llama.cpp/ggml/src/ggml-metal/ggml-metal-ops.cpp
++++ b/llama.cpp/ggml/src/ggml-metal/ggml-metal-ops.cpp
+@@ -9,6 +9,7 @@
+ #include "ggml-metal-device.h"
+ 
+ #include <cassert>
++#include <cstdlib>
+ #include <algorithm>
+ #include <limits>
+ #include <cmath>
+@@ -2060,7 +2061,18 @@ int ggml_metal_op_mul_mat(ggml_metal_op_t ctx, int idx) {
+ 
+     // first try to use small-batch mat-mv kernels
+     // these should be efficient for BS [2, ~8]
+-    if (op->src[1]->type == GGML_TYPE_F32 && (ne00%128 == 0) &&
++    //
++    // llamafile: disabled by default. Measured on Apple M4 (16GB) with the
++    // runtime-compiled Metal dylib, these ext kernels are ~1.7x SLOWER than
++    // the regular mat-vec kernels for q4_0 at BS 2-10 (gemma4-12b-q4_0,
++    // BS=4 decode: ~200ms ext vs ~119ms mv; BS=2: ~118ms vs ~77ms). That
++    // made each speculative-verify round cost nearly BS x a single-token
++    // decode, sinking draft-mtp throughput below the no-spec baseline
++    // (9.0 vs 13.3 tok/s at n_draft=4; 20.2 tok/s at n_draft=2 with mv).
++    // nsg=4/8 instead of 2 did not help. Set GGML_METAL_MV_EXT=1 to
++    // re-enable the ext kernels for experimentation.
++    static const bool mv_ext_enabled = getenv("GGML_METAL_MV_EXT") != NULL;
++    if (mv_ext_enabled && op->src[1]->type == GGML_TYPE_F32 && (ne00%128 == 0) &&
+         (
+          (
+           (
