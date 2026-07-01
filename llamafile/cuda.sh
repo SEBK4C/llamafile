@@ -221,6 +221,17 @@ elif [ "$CUDA_MAJOR" = "13" ]; then
   -gencode arch=compute_120f,code=sm_120f"
 fi
 
+# GGML_CUDA_ARCHS: build real SASS for only the listed compute capabilities
+# (e.g. "86" or "80;86"), replacing the default multi-arch fat binary. Also
+# skips the CUDA-13 Blackwell append above — single-GPU deployments don't
+# pay for archs they can never run.
+if [ -n "${GGML_CUDA_ARCHS:-}" ]; then
+    ARCH_FLAGS=""
+    for a in $(echo "$GGML_CUDA_ARCHS" | tr ';,' '  '); do
+        ARCH_FLAGS="$ARCH_FLAGS -gencode arch=compute_${a},code=sm_${a}"
+    done
+fi
+
 # --compress-mode=size: opt-in via --compress (or --minimize-size). Requires CUDA >= 12.8.
 if [ "$COMPRESS" = "1" ]; then
     if [ "$CUDA_MAJOR" -gt 12 ] 2>/dev/null || \
