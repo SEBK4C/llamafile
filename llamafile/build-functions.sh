@@ -262,6 +262,19 @@ compile_ggml_core() {
             g++ -c "${host_flags[@]}" -std=c++17 -o "$obj" "$src"
         fi
     done
+
+    # glibc 2.38+ headers redirect strtol/sscanf/... to __isoc23_* versioned
+    # symbols in every translation unit (g++ defines _GNU_SOURCE, which turns
+    # the redirect on regardless of -std). Link a forwarding shim so the DSO
+    # keeps loading on older-glibc distros; see glibc-compat.c.
+    if [ "$(uname -s)" = "Linux" ]; then
+        local shim
+        shim="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/glibc-compat.c"
+        if [ -f "$shim" ]; then
+            echo "  Compiling: glibc-compat.c"
+            gcc -c -fPIC -O2 -std=gnu11 -o "$build_dir/glibc-compat.o" "$shim"
+        fi
+    fi
     echo ""
 }
 
