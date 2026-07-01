@@ -253,7 +253,11 @@ compile_ggml_core() {
 
         echo "  Compiling: $base"
         if [ "$ext" = "c" ]; then
-            gcc -c "${host_flags[@]}" -o "$obj" "$src"
+            # -std=gnu17: newer gcc defaults to C23, whose glibc headers
+            # redirect strtol/sscanf/... to __isoc23_* (GLIBC_2.38+). That
+            # breaks the DSO on older-glibc distros (e.g. Debian 12 / 2.36),
+            # same class of problem as the static libstdc++ note below.
+            gcc -c "${host_flags[@]}" -std=gnu17 -o "$obj" "$src"
         else
             g++ -c "${host_flags[@]}" -std=c++17 -o "$obj" "$src"
         fi
