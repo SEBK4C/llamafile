@@ -65,9 +65,12 @@ int llamafile_voice_start(void) {
     // next full restart, so run it under a respawn loop (2s backoff). APE
     // binaries bootstrap reliably under sh on every unix. The loop gets its
     // own process group so voice_kill() can take out loop + server together.
-    char cmd[128];
+    // nice -n -5: synthesis must win the CPU fight against the threads
+    // feeding the GPU during generation, or first-utterance latency doubles
+    char cmd[192];
     snprintf(cmd, sizeof(cmd),
-             "while :; do /bin/sh \"$1\" -mp \"$2\" --port %s; sleep 2; done", VOICE_PORT);
+             "NP=\"nice -n -5\"; command -v nice >/dev/null 2>&1 || NP=\"\"; "
+             "while :; do $NP /bin/sh \"$1\" -mp \"$2\" --port %s; sleep 2; done", VOICE_PORT);
     char *argv[] = {"/bin/sh", "-c", cmd, "g4voice", ape, gguf, (char *)0};
     extern char **environ;
     pid_t pid;
