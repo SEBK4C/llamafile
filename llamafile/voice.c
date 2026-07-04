@@ -1,0 +1,77 @@
+// -*- mode:c;indent-tabs-mode:nil;c-basic-offset:4;coding:utf-8 -*-
+// vi: set et ft=c ts=4 sts=4 sw=4 fenc=utf-8 :vi
+#define _COSMO_SOURCE // makedirs()
+//
+// Baked-in voice: if the zip carries a TTS server APE and a Kokoro GGUF,
+// extract both to the app dir and spawn the server on a loopback port.
+// The web UI probes /tts (reverse-proxied by server-http.cpp) and shows
+// the read-aloud controls only when this answers — so on builds without
+// the voice payload nothing changes.
+//
+// Opt-out: LLAMAFILE_NO_VOICE=1.
+
+#include "llamafile.h"
+
+#include <errno.h>
+#include <limits.h>
+#include <signal.h>
+#include <spawn.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/stat.h>
+#include <unistd.h>
+
+#define VOICE_ZIP_APE "/zip/tts-server.ape"
+#define VOICE_ZIP_GGUF "/zip/kokoro.gguf"
+#define VOICE_PORT "8078"
+
+static pid_t g_voice_pid = -1;
+
+static void voice_kill(void) {
+    if (g_voice_pid > 0) {
+        kill(g_voice_pid, SIGTERM);
+    }
+}
+
+// Returns the loopback port the voice server listens on, or 0 if no voice
+// payload is present / spawn failed. Idempotent.
+int llamafile_voice_start(void) {
+    static int port = -1;
+    if (port != -1)
+        return port;
+    port = 0;
+    if (getenv("LLAMAFILE_NO_VOICE"))
+        return port;
+    struct stat st;
+    if (stat(VOICE_ZIP_APE, &st) || stat(VOICE_ZIP_GGUF, &st))
+        return port; // no baked voice in this build
+    char app[PATH_MAX], ape[PATH_MAX], gguf[PATH_MAX];
+    llamafile_get_app_dir(app, sizeof(app));
+    if (makedirs(app, 0755)) {
+        fprintf(stderr, "voice: could not create %s\n", app);
+        return port;
+    }
+    snprintf(ape, sizeof(ape), "%stts-server.ape", app);
+    snprintf(gguf, sizeof(gguf), "%skokoro.gguf", app);
+    if (!llamafile_extract(VOICE_ZIP_APE, ape) || !llamafile_extract(VOICE_ZIP_GGUF, gguf)) {
+        fprintf(stderr, "voice: failed to extract baked TTS payload\n");
+        return port;
+    }
+    chmod(ape, 0755);
+    // APE binaries bootstrap reliably under sh on every unix
+    char *argv[] = {"/bin/sh", ape, "-mp", gguf, "--port", VOICE_PORT, (char *)0};
+    extern char **environ;
+    pid_t pid;
+    if (posix_spawn(&pid, "/bin/sh", 0, 0, argv, environ)) {
+        fprintf(stderr, "voice: failed to spawn TTS server: %s\n", strerror(errno));
+        return port;
+    }
+    g_voice_pid = pid;
+    atexit(voice_kill);
+    port = atoi(VOICE_PORT);
+    fprintf(stderr, "voice: baked Kokoro TTS starting on 127.0.0.1:%d (read-aloud "
+                    "controls appear in the web UI once it is ready; "
+                    "LLAMAFILE_NO_VOICE=1 disables)\n", port);
+    return port;
+}

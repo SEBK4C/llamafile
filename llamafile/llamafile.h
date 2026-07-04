@@ -78,6 +78,7 @@ char *llamafile_get_prompt(void);                         // NOT DEFINED
 bool llamafile_has(char **, const char *);
 void llamafile_get_app_dir(char *, size_t);
 bool llamafile_extract(const char *, const char *);
+int llamafile_voice_start(void);
 int llamafile_is_file_newer_than(const char *, const char *);
 
 // Common utilities for GPU backend loaders (defined in llamafile.c)
