@@ -30,7 +30,9 @@ static pid_t g_voice_pid = -1;
 
 static void voice_kill(void) {
     if (g_voice_pid > 0) {
-        kill(g_voice_pid, SIGTERM);
+        // the supervisor runs in its own process group with the TTS server;
+        // signal the group so neither outlives us
+        kill(-g_voice_pid, SIGTERM);
     }
 }
 
@@ -59,12 +61,24 @@ int llamafile_voice_start(void) {
         return port;
     }
     chmod(ape, 0755);
-    // APE binaries bootstrap reliably under sh on every unix
-    char *argv[] = {"/bin/sh", ape, "-mp", gguf, "--port", VOICE_PORT, (char *)0};
+    // Supervise: a crashed TTS server must not mean voice is gone until the
+    // next full restart, so run it under a respawn loop (2s backoff). APE
+    // binaries bootstrap reliably under sh on every unix. The loop gets its
+    // own process group so voice_kill() can take out loop + server together.
+    char cmd[128];
+    snprintf(cmd, sizeof(cmd),
+             "while :; do /bin/sh \"$1\" -mp \"$2\" --port %s; sleep 2; done", VOICE_PORT);
+    char *argv[] = {"/bin/sh", "-c", cmd, "g4voice", ape, gguf, (char *)0};
     extern char **environ;
     pid_t pid;
-    if (posix_spawn(&pid, "/bin/sh", 0, 0, argv, environ)) {
-        fprintf(stderr, "voice: failed to spawn TTS server: %s\n", strerror(errno));
+    posix_spawnattr_t attr;
+    posix_spawnattr_init(&attr);
+    posix_spawnattr_setflags(&attr, POSIX_SPAWN_SETPGROUP);
+    posix_spawnattr_setpgroup(&attr, 0);
+    int err = posix_spawn(&pid, "/bin/sh", 0, &attr, argv, environ);
+    posix_spawnattr_destroy(&attr);
+    if (err) {
+        fprintf(stderr, "voice: failed to spawn TTS server: %s\n", strerror(err));
         return port;
     }
     g_voice_pid = pid;
