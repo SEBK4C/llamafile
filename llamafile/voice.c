@@ -65,13 +65,28 @@ int llamafile_voice_start(void) {
     // next full restart, so run it under a respawn loop (2s backoff). APE
     // binaries bootstrap reliably under sh on every unix. The loop gets its
     // own process group so voice_kill() can take out loop + server together.
-    // nice -n -5: synthesis must win the CPU fight against the threads
-    // feeding the GPU during generation, or first-utterance latency doubles
-    char cmd[192];
-    snprintf(cmd, sizeof(cmd),
-             "NP=\"nice -n -5\"; command -v nice >/dev/null 2>&1 || NP=\"\"; "
-             "while :; do $NP /bin/sh \"$1\" -mp \"$2\" --port %s; sleep 2; done", VOICE_PORT);
-    char *argv[] = {"/bin/sh", "-c", cmd, "g4voice", ape, gguf, (char *)0};
+    // TWO instances: VOICE_PORT = bulk lane, VOICE_PORT+1 = priority lane
+    // for a turn's first words (synthesis is serial per instance; a long
+    // chunk must never block the next reply's opening words). Each runs
+    // under the watchdog script, which respawns on death AND on wedge (a
+    // hung worker still LISTENS but never answers — liveness checks miss it).
+    char wd[PATH_MAX];
+    snprintf(wd, sizeof(wd), "%svoice-watchdog.sh", app);
+    int have_wd = llamafile_extract("/zip/voice-watchdog.sh", wd);
+    char cmd[768];
+    if (have_wd) {
+        snprintf(cmd, sizeof(cmd),
+                 "( /bin/sh \"$3\" \"$1\" \"$2\" %s ) & "
+                 "( /bin/sh \"$3\" \"$1\" \"$2\" %d ) & "
+                 "wait", VOICE_PORT, atoi(VOICE_PORT) + 1);
+    } else {
+        snprintf(cmd, sizeof(cmd),
+                 "NP=\"nice -n -5\"; command -v nice >/dev/null 2>&1 || NP=\"\"; "
+                 "( while :; do $NP /bin/sh \"$1\" -mp \"$2\" --port %s; sleep 2; done ) & "
+                 "( while :; do $NP /bin/sh \"$1\" -mp \"$2\" --port %d; sleep 2; done ) & "
+                 "wait", VOICE_PORT, atoi(VOICE_PORT) + 1);
+    }
+    char *argv[] = {"/bin/sh", "-c", cmd, "g4voice", ape, gguf, wd, (char *)0};
     extern char **environ;
     pid_t pid;
     posix_spawnattr_t attr;
