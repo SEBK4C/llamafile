@@ -53,6 +53,21 @@ int llamafile_embed_start(void) {
     port = 0;
     if (getenv("LLAMAFILE_NO_EMBED"))
         return port;
+    // External sidecar mode (source-tree serve.sh route, no baked payload):
+    // LLAMAFILE_EMBED_PORT names an already-running embedding server; the
+    // /embed proxy and /v1/embeddings forward then work identically to the
+    // baked path. Same pattern as LLAMAFILE_TTS_PORT in voice.c.
+    const char *env = getenv("LLAMAFILE_EMBED_PORT");
+    if (env && *env) {
+        int p = atoi(env);
+        if (p > 0 && p < 65536) {
+            fprintf(stderr, "embed: using external embedding sidecar on "
+                            "127.0.0.1:%d (LLAMAFILE_EMBED_PORT)\n", p);
+            port = p;
+            return port;
+        }
+        fprintf(stderr, "warning: ignoring invalid LLAMAFILE_EMBED_PORT=%s\n", env);
+    }
     struct stat st;
     if (stat(EMBED_ZIP_GGUF, &st))
         return port; // no baked embedder in this build

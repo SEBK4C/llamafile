@@ -45,6 +45,21 @@ int llamafile_voice_start(void) {
     port = 0;
     if (getenv("LLAMAFILE_NO_VOICE"))
         return port;
+    // External sidecar mode (source-tree serve.sh route, or builds without
+    // the baked payload): LLAMAFILE_TTS_PORT names a loopback port where a
+    // TTS server (TTS.cpp tts-server or kokoro_server.py) already runs; the
+    // /tts reverse proxy then works identically to the baked path.
+    const char *env = getenv("LLAMAFILE_TTS_PORT");
+    if (env && *env) {
+        int p = atoi(env);
+        if (p > 0 && p < 65536) {
+            fprintf(stderr, "voice: proxying /tts to 127.0.0.1:%d "
+                            "(LLAMAFILE_TTS_PORT)\n", p);
+            port = p;
+            return port;
+        }
+        fprintf(stderr, "warning: ignoring invalid LLAMAFILE_TTS_PORT=%s\n", env);
+    }
     struct stat st;
     if (stat(VOICE_ZIP_APE, &st) || stat(VOICE_ZIP_GGUF, &st))
         return port; // no baked voice in this build
