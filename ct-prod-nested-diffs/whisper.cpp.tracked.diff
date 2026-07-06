@@ -1,0 +1,273 @@
+diff --git a/Makefile b/Makefile
+deleted file mode 100644
+index 97a26d48..00000000
+--- a/Makefile
++++ /dev/null
+@@ -1,58 +0,0 @@
+-#
+-# Audio samples
+-#
+-
+-.PHONY: build
+-build:
+-	cmake -B build $(CMAKE_ARGS)
+-	cmake --build build --config Release
+-
+-# download a few audio samples into folder "./samples":
+-.PHONY: samples
+-samples:
+-	@echo "Downloading samples..."
+-	@mkdir -p samples
+-	@wget --quiet --show-progress -O samples/gb0.ogg https://upload.wikimedia.org/wikipedia/commons/2/22/George_W._Bush%27s_weekly_radio_address_%28November_1%2C_2008%29.oga
+-	@wget --quiet --show-progress -O samples/gb1.ogg https://upload.wikimedia.org/wikipedia/commons/1/1f/George_W_Bush_Columbia_FINAL.ogg
+-	@wget --quiet --show-progress -O samples/hp0.ogg https://upload.wikimedia.org/wikipedia/en/d/d4/En.henryfphillips.ogg
+-	@wget --quiet --show-progress -O samples/mm1.wav https://cdn.openai.com/whisper/draft-20220913a/micro-machines.wav
+-	@wget --quiet --show-progress -O samples/a13.mp3 https://upload.wikimedia.org/wikipedia/commons/transcoded/6/6f/Apollo13-wehaveaproblem.ogg/Apollo13-wehaveaproblem.ogg.mp3
+-	@wget --quiet --show-progress -O samples/diffusion2023-07-03.flac https://archive.org/download/diffusion2023-07-03/diffusion2023-07-03.flac
+-
+-#
+-# Models
+-#
+-
+-# if not already downloaded, the following targets download the specified model and
+-# runs it on all samples in the folder "./samples":
+-
+-.PHONY: tiny.en
+-.PHONY: tiny
+-.PHONY: base.en
+-.PHONY: base
+-.PHONY: small.en
+-.PHONY: small
+-.PHONY: medium.en
+-.PHONY: medium
+-.PHONY: large-v1
+-.PHONY: large-v2
+-.PHONY: large-v3
+-.PHONY: large-v3-turbo
+-
+-tiny.en tiny base.en base small.en small medium.en medium large-v1 large-v2 large-v3 large-v3-turbo:
+-	bash ./models/download-ggml-model.sh $@
+-	cmake -B build $(CMAKE_ARGS)
+-	cmake --build build --config Release
+-	@echo ""
+-	@echo "==============================================="
+-	@echo "Running $@ on all samples in ./samples ..."
+-	@echo "==============================================="
+-	@echo ""
+-	@for f in samples/*.{flac,mp3,ogg,wav}; do \
+-		echo "----------------------------------------------" ; \
+-		echo "[+] Running $@ on $$f ... (run 'ffplay $$f' to listen)" ; \
+-		echo "----------------------------------------------" ; \
+-		echo "" ; \
+-		./build/bin/whisper-cli -m models/ggml-$@.bin -f $$f ; \
+-		echo "" ; \
+-	done
+diff --git a/examples/cli/cli.cpp b/examples/cli/cli.cpp
+index 9a54742f..6a61425d 100644
+--- a/examples/cli/cli.cpp
++++ b/examples/cli/cli.cpp
+@@ -21,6 +21,10 @@
+ #include <windows.h>
+ #endif
+ 
++#ifdef WHISPERFILE
++#include "whisperfile/slurp.h"
++#endif
++
+ // helper function to replace substrings
+ static void replace_all(std::string & s, const std::string & search, const std::string & replace) {
+     for (size_t pos = 0; ; pos += replace.length()) {
+@@ -918,7 +922,9 @@ static void output_lrc(struct whisper_context * ctx, std::ofstream & fout, const
+ 
+ static void cb_log_disable(enum ggml_log_level , const char * , void * ) { }
+ 
+-int main(int argc, char ** argv) {
++// Core whisper-cli logic - can be called from whisperfile main or standalone main()
++// When building whisperfile, its main() calls this function directly
++int whisper_cli_main(int argc, char ** argv) {
+     ggml_backend_load_all();
+ 
+ #if defined(_WIN32)
+@@ -1115,7 +1121,12 @@ int main(int argc, char ** argv) {
+         std::vector<float> pcmf32;               // mono-channel F32 PCM
+         std::vector<std::vector<float>> pcmf32s; // stereo-channel F32 PCM
+ 
++#ifdef WHISPERFILE
++        // Use slurp_audio_file for better format support (WAV, MP3, FLAC, OGG)
++        if (!slurp_audio_file(fname_inp.c_str(), pcmf32, pcmf32s, params.diarize)) {
++#else
+         if (!::read_audio_data(fname_inp, pcmf32, pcmf32s, params.diarize)) {
++#endif
+             fprintf(stderr, "error: failed to read audio file '%s'\n", fname_inp.c_str());
+             continue;
+         }
+@@ -1304,3 +1315,12 @@ int main(int argc, char ** argv) {
+ 
+     return 0;
+ }
++
++// Standalone entry point for whisper-cli executable
++// Not compiled when building as part of whisperfile (which has its own main)
++// Having this allows us to build a vanilla whisper-cli without llamafile features
++#ifndef WHISPERFILE
++int main(int argc, char ** argv) {
++    return whisper_cli_main(argc, argv);
++}
++#endif
+diff --git a/examples/common.cpp b/examples/common.cpp
+index 8eb633e5..f7a4eb8a 100644
+--- a/examples/common.cpp
++++ b/examples/common.cpp
+@@ -2,6 +2,7 @@
+ 
+ #include "common.h"
+ 
++#include <algorithm>
+ #include <cmath>
+ #include <codecvt>
+ #include <cstring>
+@@ -418,9 +419,9 @@ gpt_vocab::id gpt_sample_top_k_top_p(
+     }
+ 
+     // find the top K tokens
+-    std::partial_sort(
++    std::sort(
+             logits_id.begin(),
+-            logits_id.begin() + top_k, logits_id.end(),
++            logits_id.end(),
+             [](const std::pair<double, gpt_vocab::id> & a, const std::pair<double, gpt_vocab::id> & b) {
+         return a.first > b.first;
+     });
+@@ -533,9 +534,9 @@ gpt_vocab::id gpt_sample_top_k_top_p_repeat(
+     }
+ 
+     // find the top K tokens
+-    std::partial_sort(
++    std::sort(
+             logits_id.begin(),
+-            logits_id.begin() + top_k, logits_id.end(),
++            logits_id.end(),
+             [](const std::pair<double, gpt_vocab::id> & a, const std::pair<double, gpt_vocab::id> & b) {
+         return a.first > b.first;
+     });
+diff --git a/examples/miniaudio.h b/examples/miniaudio.h
+index c74bebeb..d53409d7 100644
+--- a/examples/miniaudio.h
++++ b/examples/miniaudio.h
+@@ -3859,7 +3859,7 @@ typedef ma_uint16 wchar_t;
+ 
+ 
+ /* Platform/backend detection. */
+-#if defined(_WIN32) || defined(__COSMOPOLITAN__)
++#if defined(_WIN32)
+     #define MA_WIN32
+     #if defined(MA_FORCE_UWP) || (defined(WINAPI_FAMILY) && ((defined(WINAPI_FAMILY_PC_APP) && WINAPI_FAMILY == WINAPI_FAMILY_PC_APP) || (defined(WINAPI_FAMILY_PHONE_APP) && WINAPI_FAMILY == WINAPI_FAMILY_PHONE_APP)))
+         #define MA_WIN32_UWP
+diff --git a/examples/server/server.cpp b/examples/server/server.cpp
+index 866ac4ea..54258aa3 100644
+--- a/examples/server/server.cpp
++++ b/examples/server/server.cpp
+@@ -23,6 +23,11 @@
+ #include <windows.h>
+ #endif
+ 
++#ifdef WHISPERFILE
++#include "whisperfile/slurp.h"
++#include "llamafile/llamafile.h"
++#endif
++
+ using namespace httplib;
+ using json = nlohmann::ordered_json;
+ 
+@@ -261,6 +266,22 @@ bool whisper_params_parse(int argc, char ** argv, whisper_params & params, serve
+         else if (arg == "-vmsd" || arg == "--vad-max-speech-duration-s")   { params.vad_max_speech_duration_s   = std::stof(argv[++i]); }
+         else if (arg == "-vp"   || arg == "--vad-speech-pad-ms")           { params.vad_speech_pad_ms           = std::stoi(argv[++i]); }
+         else if (arg == "-vo"   || arg == "--vad-samples-overlap")         { params.vad_samples_overlap         = std::stof(argv[++i]); }
++#ifdef WHISPERFILE
++        // llamafile flags
++        else if (arg == "--log-disable") { FLAG_log_disable = true; }
++        else if (arg == "-ng" || arg == "--no-gpu") { FLAG_gpu = LLAMAFILE_GPU_DISABLE; }
++        else if (arg == "--gpu") {
++            if (++i >= argc) {
++                fprintf(stderr, "error: missing --gpu flag value\n");
++                exit(1);
++            }
++            FLAG_gpu = llamafile_gpu_parse(argv[i]);
++            if (FLAG_gpu == LLAMAFILE_GPU_ERROR) {
++                fprintf(stderr, "error: invalid --gpu flag value: %s\n", argv[i]);
++                exit(1);
++            }
++        }
++#endif
+         else {
+             fprintf(stderr, "error: unknown argument: %s\n", arg.c_str());
+             whisper_print_usage(argc, argv, params, sparams);
+@@ -611,7 +632,8 @@ void get_req_parameters(const Request & req, whisper_params & params)
+ 
+ }  // namespace
+ 
+-int main(int argc, char ** argv) {
++// Core server logic - can be called from whisper-server main or standalone
++int whisper_server_main(int argc, char ** argv) {
+     ggml_backend_load_all();
+ 
+     whisper_params params;
+@@ -818,6 +840,25 @@ int main(int argc, char ** argv) {
+         std::vector<float> pcmf32;               // mono-channel F32 PCM
+         std::vector<std::vector<float>> pcmf32s; // stereo-channel F32 PCM
+ 
++#ifdef WHISPERFILE
++        // whisperfile: use slurp_audio_file for WAV/MP3/FLAC/OGG support
++        {
++            // write incoming audio to temporary file
++            const std::string temp_filename = generate_temp_filename(sparams.tmp_dir, "whisper-server", "");
++            std::ofstream temp_file{temp_filename, std::ios::binary};
++            temp_file << audio_file.content;
++            temp_file.close();
++
++            bool ok = slurp_audio_file(temp_filename.c_str(), pcmf32, pcmf32s, params.diarize);
++            std::remove(temp_filename.c_str());
++            if (!ok) {
++                fprintf(stderr, "error: failed to read audio file\n");
++                const std::string error_resp = "{\"error\":\"failed to read audio file (supported: wav, mp3, flac, ogg)\"}";
++                res.set_content(error_resp, "application/json");
++                return;
++            }
++        }
++#else
+         if (sparams.ffmpeg_converter) {
+             // if file is not wav, convert to wav
+             // write to temporary file
+@@ -853,6 +894,7 @@ int main(int argc, char ** argv) {
+                 return;
+             }
+         }
++#endif
+ 
+         printf("Successfully loaded %s\n", filename.c_str());
+ 
+@@ -1246,3 +1288,10 @@ int main(int argc, char ** argv) {
+ 
+     return 0;
+ }
++
++// Standalone entry point - only when NOT building as part of whisperfile
++#ifndef WHISPERFILE
++int main(int argc, char ** argv) {
++    return whisper_server_main(argc, argv);
++}
++#endif
+diff --git a/ggml/src/ggml-backend-reg.cpp b/ggml/src/ggml-backend-reg.cpp
+index 4181a714..4683dba4 100644
+--- a/ggml/src/ggml-backend-reg.cpp
++++ b/ggml/src/ggml-backend-reg.cpp
+@@ -545,7 +545,8 @@ static ggml_backend_reg_t ggml_backend_load_best(const char * name, bool silent,
+             if (ec) {
+                 GGML_LOG_DEBUG("%s: posix_stat(%s) failure, error-message: %s\n", __func__, path_str(search_path).c_str(), ec.message().c_str());
+             } else {
+-                GGML_LOG_DEBUG("%s: search path %s does not exist\n", __func__, path_str(search_path).c_str());
++                // whisperfile will return this multiple times - removing
++                // GGML_LOG_DEBUG("%s: search path %s does not exist\n", __func__, path_str(search_path).c_str());
+             }
+             continue;
+         }

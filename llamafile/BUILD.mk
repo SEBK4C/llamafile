@@ -125,6 +125,7 @@ LLAMAFILE_SRCS_C := \
 	llamafile/llamafile.c \
 	llamafile/metal.c \
 	llamafile/voice.c \
+	llamafile/embed.c \
 	llamafile/vulkan.c \
 	llamafile/zip.c
 
