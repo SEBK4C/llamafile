@@ -10,6 +10,13 @@ LLAMAFILE_FILES_DIR="$SCRIPT_DIR/llamafile-files"
 
 cd "$LLAMA_DIR"
 
+# Source-true checkout (SEBK4C/llama.cpp@gemma4-v0.7.x): the composed tree
+# is committed — overlay copy and patch application would regress it.
+if [ -f .gemma4-source-true ]; then
+    echo "llama.cpp is a source-true checkout — skipping overlay and patches."
+    exit 0
+fi
+
 # Check if status is dirty, if so, exit
 if [ -n "$(git status --porcelain)" ]; then
     echo "Git status is dirty. Please commit or stash your changes before applying patches."

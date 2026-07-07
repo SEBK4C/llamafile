@@ -6,7 +6,8 @@
 	url = https://github.com/leejet/stable-diffusion.cpp.git
 [submodule "llama.cpp"]
 	path = llama.cpp
-	url = https://github.com/ggerganov/llama.cpp.git
+	url = https://github.com/SEBK4C/llama.cpp.git
+	branch = gemma4-v0.7.x
 [submodule "third_party/zipalign"]
 	path = third_party/zipalign
 	url = https://github.com/jart/zipalign.git
